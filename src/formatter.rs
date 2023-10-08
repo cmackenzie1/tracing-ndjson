@@ -129,13 +129,8 @@ where
                 .map_err(Error::Serde)?;
         };
 
-        let span = event
-            .parent()
-            .and_then(|id| ctx.span(id))
-            .or_else(|| ctx.lookup_current());
-
         // Write all fields from spans
-        if let Some(leaf_span) = span {
+        if let Some(leaf_span) = ctx.lookup_current() {
             for span in leaf_span.scope().from_root() {
                 let ext = span.extensions();
                 let data = ext
