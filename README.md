@@ -45,4 +45,4 @@ See the [examples](./examples) directory for more examples.
 
 ## License
 
-Licensed under MIT license ([LICENSE](LICENSE) or http://opensource.org/licenses/MIT)
+Licensed under [MIT license](./LICENSE)
