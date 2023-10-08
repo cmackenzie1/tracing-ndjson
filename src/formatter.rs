@@ -3,13 +3,19 @@ use std::fmt;
 use serde::{ser::SerializeMap, Serializer};
 
 use tracing_core::{Event, Subscriber};
-use tracing_serde::fields::AsMap;
 use tracing_subscriber::{
     fmt::{format, FmtContext, FormatEvent, FormatFields, FormattedFields},
     registry::LookupSpan,
 };
 
-use crate::Error;
+use crate::{visitor, Error};
+
+const DEFAULT_TIMESTAMP_FORMAT: crate::TimestampFormat = crate::TimestampFormat::Rfc3339;
+const DEFAULT_LEVEL_NAME: &str = "level";
+const DEFAULT_MESSAGE_NAME: &str = "message";
+const DEFAULT_TARGET_NAME: &str = "target";
+const DEFAULT_TIMESTAMP_NAME: &str = "timestamp";
+const DEFAULT_FLATTEN_FIELDS: bool = true;
 
 /// A JSON formatter for tracing events.
 /// This is used to format the event field in the JSON output.
@@ -25,12 +31,12 @@ pub struct JsonEventFormatter {
 impl Default for JsonEventFormatter {
     fn default() -> Self {
         Self {
-            level_name: "level",
-            message_name: "message",
-            target_name: "target",
-            timestamp_name: "timestamp",
-            timestamp_format: crate::TimestampFormat::Rfc3339,
-            flatten_fields: true,
+            level_name: DEFAULT_LEVEL_NAME,
+            message_name: DEFAULT_MESSAGE_NAME,
+            target_name: DEFAULT_TARGET_NAME,
+            timestamp_name: DEFAULT_TIMESTAMP_NAME,
+            timestamp_format: DEFAULT_TIMESTAMP_FORMAT,
+            flatten_fields: DEFAULT_FLATTEN_FIELDS,
         }
     }
 }
@@ -84,8 +90,7 @@ where
     ) -> fmt::Result {
         let now = chrono::Utc::now();
 
-        let mut buffer = Vec::new();
-        let mut binding = serde_json::Serializer::new(&mut buffer);
+        let mut binding = serde_json::Serializer::new(Vec::new());
         let mut serializer = binding.serialize_map(None).map_err(Error::Serde)?;
 
         serializer
@@ -118,33 +123,61 @@ where
             .serialize_entry(self.target_name, event.metadata().target())
             .map_err(Error::Serde)?;
 
-        if self.flatten_fields {
-            let mut visitor = tracing_serde::SerdeMapVisitor::new(serializer);
-            event.record(&mut visitor);
-
-            serializer = visitor.take_serializer().map_err(|_| Error::Unknown)?;
+        let msg_name = if self.message_name != DEFAULT_MESSAGE_NAME {
+            Some(self.message_name)
         } else {
-            serializer
-                .serialize_entry("fields", &event.field_map())
-                .map_err(Error::Serde)?;
+            None
         };
+
+        if self.flatten_fields {
+            // record fields in the top-level map
+            let mut visitor = visitor::Visitor::new(&mut serializer, msg_name);
+            event.record(&mut visitor);
+            visitor.finish().map_err(Error::Serde)?;
+        } else {
+            // record fields in a nested map under the key "fields"
+            let mut binding = serde_json::Serializer::pretty(Vec::new());
+            let mut field_serializer = binding.serialize_map(None).map_err(Error::Serde)?;
+            let mut visitor = visitor::Visitor::new(&mut field_serializer, msg_name);
+            event.record(&mut visitor);
+            visitor.finish().map_err(Error::Serde)?;
+            field_serializer.end().map_err(Error::Serde)?;
+
+            // Add the new map to the top-level map
+            let obj: Option<serde_json::Value> = serde_json::from_str(
+                std::str::from_utf8(&binding.into_inner()).map_err(Error::Utf8)?,
+            )
+            .ok();
+            if matches!(obj, Some(serde_json::Value::Object(_))) {
+                let obj = obj.expect("matched object");
+                serializer
+                    .serialize_entry("fields", &obj)
+                    .map_err(Error::Serde)?;
+            }
+        }
 
         // Write all fields from spans
         if let Some(leaf_span) = ctx.lookup_current() {
             for span in leaf_span.scope().from_root() {
                 let ext = span.extensions();
-                let data = ext
+                let formatted_fields = ext
                     .get::<FormattedFields<N>>()
                     .expect("Unable to find FormattedFields in extensions; this is a bug");
 
-                if !data.is_empty() {
-                    let obj: Option<serde_json::Value> = serde_json::from_str(data.as_str()).ok();
-                    if matches!(obj, Some(serde_json::Value::Object(_))) {
-                        let obj = obj.expect("matched object");
-                        for (key, value) in obj.as_object().unwrap() {
-                            serializer
-                                .serialize_entry(key, value)
-                                .map_err(Error::Serde)?;
+                // formatted_fields actually contains multiple ndjson objects, one for every time a spans fields are formatted.
+                // re-parse these into JSON for serialization into the final map. Any fields redefined in a subsequent span
+                // will overwrite the previous value.
+                // TODO(cmackenzie1): There has to be a better way to do this.
+                for data in formatted_fields.split('\n') {
+                    if !data.is_empty() {
+                        let obj: Option<serde_json::Value> = serde_json::from_str(data).ok();
+                        if matches!(obj, Some(serde_json::Value::Object(_))) {
+                            let obj = obj.expect("matched object");
+                            for (key, value) in obj.as_object().unwrap() {
+                                serializer
+                                    .serialize_entry(key, value)
+                                    .map_err(Error::Serde)?;
+                            }
                         }
                     }
                 }
@@ -152,8 +185,12 @@ where
         }
 
         serializer.end().map_err(Error::Serde)?;
-        writer.write_str(std::str::from_utf8(&buffer).map_err(Error::Utf8)?)?;
-        writer.write_char('\n')?;
+
+        writeln!(
+            writer,
+            "{}",
+            std::str::from_utf8(&binding.into_inner()).map_err(Error::Utf8)?
+        )?;
 
         Ok(())
     }
@@ -178,16 +215,18 @@ impl<'writer> FormatFields<'writer> for FieldsFormatter {
     where
         R: tracing_subscriber::field::RecordFields,
     {
-        let mut buffer = Vec::new();
-        let mut binding = serde_json::Serializer::new(&mut buffer);
+        let mut binding = serde_json::Serializer::new(Vec::new());
         let mut serializer = binding.serialize_map(None).map_err(Error::Serde)?;
-        let mut visitor = tracing_serde::SerdeMapVisitor::new(serializer);
+        let mut visitor = visitor::Visitor::new(&mut serializer, None);
 
         fields.record(&mut visitor);
 
-        serializer = visitor.take_serializer().map_err(|_| Error::Unknown)?;
         serializer.end().map_err(Error::Serde)?;
-        writer.write_str(std::str::from_utf8(&buffer).map_err(Error::Utf8)?)?;
+        writeln!(
+            writer,
+            "{}",
+            std::str::from_utf8(&binding.into_inner()).map_err(Error::Utf8)?
+        )?;
 
         Ok(())
     }
