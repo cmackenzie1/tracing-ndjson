@@ -43,6 +43,7 @@
 //!
 //! Licensed under MIT license [LICENSE](./LICENSE)
 mod formatter;
+mod visitor;
 
 use tracing_core::Subscriber;
 use tracing_subscriber::fmt::{Layer, SubscriberBuilder};
@@ -97,8 +98,6 @@ enum Error {
     Serde(#[from] serde_json::Error),
     #[error("utf8 error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
-    #[error("unknown error")]
-    Unknown,
 }
 
 impl From<Error> for std::fmt::Error {
@@ -235,8 +234,16 @@ mod tests {
 
     use super::*;
 
-    use tracing::{debug, error, info, info_span, trace, warn};
+    use tracing::{debug, error, info, info_span, instrument, trace, warn};
     use tracing_subscriber::prelude::*;
+
+    #[instrument]
+    fn some_function(a: u32, b: u32) {
+        let span = info_span!("some_span", a = a, b = b);
+        span.in_scope(|| {
+            info!("some message from inside a span");
+        });
+    }
 
     #[test]
     fn test_json_event_formatter() {
@@ -270,9 +277,10 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(
             builder()
                 .with_level_name("severity")
-                .with_message_name("message")
+                .with_message_name("msg")
                 .with_timestamp_name("ts")
                 .with_timestamp_format(TimestampFormat::Unix)
+                .with_flatten_fields(false)
                 .layer(),
         );
 
@@ -299,6 +307,33 @@ mod tests {
                     );
                 });
             });
+        });
+    }
+
+    #[test]
+    fn test_nested_spans() {
+        let subscriber = tracing_subscriber::registry().with(builder().layer());
+
+        tracing::subscriber::with_default(subscriber, || {
+            let span = info_span!(
+                "test_span",
+                person.firstname = "cole",
+                person.lastname = "mackenzie",
+                later = tracing::field::Empty,
+            );
+            span.in_scope(|| {
+                info!("some message from inside a info_span");
+                let inner = info_span!("inner_span", a = "b", c = "d", inner_span = true);
+                inner.in_scope(|| {
+                    info!(
+                        inner_span_field = true,
+                        later = "populated from inside a span",
+                        "some message from inside a info_span",
+                    );
+                });
+            });
+
+            some_function(1, 2);
         });
     }
 }
