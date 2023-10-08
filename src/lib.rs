@@ -208,8 +208,8 @@ impl Builder {
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         tracing_subscriber::fmt::layer()
-            .event_format(self.events)
             .fmt_fields(self.fields)
+            .event_format(self.events)
     }
 
     pub fn subscriber_builder(
@@ -234,42 +234,14 @@ where
 mod tests {
 
     use super::*;
+
     use tracing::{debug, error, info, info_span, trace, warn};
-    use tracing_core::Level;
+    use tracing_subscriber::prelude::*;
 
     #[test]
     fn test_json_event_formatter() {
-        let formatter = formatter::JsonEventFormatter::new();
-        let subscriber = tracing_subscriber::fmt()
-            .fmt_fields(formatter::FieldsFormatter::new())
-            .event_format(formatter)
-            .with_max_level(Level::TRACE)
-            .finish();
+        let subscriber = tracing_subscriber::registry().with(builder().layer());
 
-        tracing::subscriber::with_default(subscriber, || {
-            trace!(a = "b", "hello world from trace");
-            debug!("hello world from debug");
-            info!("hello world from info");
-            warn!("hello world from warn");
-            error!("hello world from error");
-
-            let span = info_span!("test_span", b = "b", d = "d", later = tracing::field::Empty,);
-            span.in_scope(|| {
-                info!("some message from inside a info_span");
-            });
-        });
-
-        let formatter = formatter::JsonEventFormatter::new()
-            .with_level_name("severity")
-            .with_message_name("msg")
-            .with_timestamp_name("ts")
-            .with_timestamp_format(TimestampFormat::Unix);
-
-        let subscriber = tracing_subscriber::fmt()
-            .fmt_fields(formatter::FieldsFormatter::new())
-            .event_format(formatter)
-            .with_max_level(Level::TRACE)
-            .finish();
         tracing::subscriber::with_default(subscriber, || {
             trace!(a = "b", "hello world from trace");
             debug!("hello world from debug");
@@ -284,9 +256,47 @@ mod tests {
             );
             span.in_scope(|| {
                 info!("some message from inside a info_span");
-                let inner = info_span!("inner_span", a = "b", c = "d");
+                let inner = info_span!("inner_span", a = "b", c = "d", inner_span = true);
                 inner.in_scope(|| {
-                    info!("some message from inside a info_span");
+                    info!(
+                        inner_span_field = true,
+                        later = "populated from inside a span",
+                        "some message from inside a info_span",
+                    );
+                });
+            });
+        });
+
+        let subscriber = tracing_subscriber::registry().with(
+            builder()
+                .with_level_name("severity")
+                .with_message_name("message")
+                .with_timestamp_name("ts")
+                .with_timestamp_format(TimestampFormat::Unix)
+                .layer(),
+        );
+
+        tracing::subscriber::with_default(subscriber, || {
+            trace!(a = "b", "hello world from trace");
+            debug!("hello world from debug");
+            info!("hello world from info");
+            warn!("hello world from warn");
+            error!("hello world from error");
+            let span = info_span!(
+                "test_span",
+                person.firstname = "cole",
+                person.lastname = "mackenzie",
+                later = tracing::field::Empty,
+            );
+            span.in_scope(|| {
+                info!("some message from inside a info_span");
+                let inner = info_span!("inner_span", a = "b", c = "d", inner_span = true);
+                inner.in_scope(|| {
+                    info!(
+                        inner_span_field = true,
+                        later = "populated from inside a span",
+                        "some message from inside a info_span",
+                    );
                 });
             });
         });
