@@ -21,6 +21,8 @@
 //! ```
 //!
 //! ```rust
+//! use tracing_subscriber::prelude::*;
+//!
 //! tracing_subscriber::registry()
 //!     .with(tracing_ndjson::builder().layer())
 //!     .init();

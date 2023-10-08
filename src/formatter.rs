@@ -210,8 +210,7 @@ mod tests {
 
     use super::*;
     use chrono::Utc;
-    use tracing::{debug, error, info, info_span, trace, warn};
-    use tracing_core::Level;
+    use tracing::{info, info_span};
     use tracing_subscriber::fmt::{MakeWriter, SubscriberBuilder};
 
     #[derive(Clone, Debug)]
