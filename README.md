@@ -1,5 +1,7 @@
 # tracing-ndjson
 
+[![Rust](https://github.com/cmackenzie1/tracing-ndjson/actions/workflows/rust.yml/badge.svg)](https://github.com/cmackenzie1/tracing-ndjson/actions/workflows/rust.yml)
+
 A simple library for tracing in new-line delimited JSON format. This library is meant to be used with [tracing](https://github.com/tokio-rs/tracing) as an alternative to the `tracing_subscriber::fmt::json` formatter.
 
 ## Features
