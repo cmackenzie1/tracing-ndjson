@@ -5,6 +5,7 @@ edition = "2021"
 license = "MIT"
 authors = ["Cole Mackenzie"]
 repository = "https://github.com/cmackenzie1/tracing-ndjson"
+description = "A customizable ndjson formatter for outputting tracing events"
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
