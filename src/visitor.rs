@@ -24,6 +24,19 @@ where
     pub fn finish(self) -> Result<(), W::Error> {
         self.state
     }
+
+    /// Serialize a key-value pair, replacing the message field if overwrite_message_name is set.
+    pub fn serialize_entry<V>(&mut self, key: &str, value: V) -> Result<(), W::Error>
+    where
+        V: serde::Serialize,
+    {
+        if self.overwrite_message_name.is_some() && key == "message" {
+            self.serializer
+                .serialize_entry(self.overwrite_message_name.expect("message"), &value)
+        } else {
+            self.serializer.serialize_entry(key, &value)
+        }
+    }
 }
 
 impl<'a, W> Visit for Visitor<'a, W>
@@ -32,49 +45,43 @@ where
 {
     fn record_f64(&mut self, field: &tracing_core::Field, value: f64) {
         if self.state.is_ok() {
-            self.state = self.serializer.serialize_entry(field.name(), &value);
+            self.state = self.serialize_entry(field.name(), value)
         }
     }
 
     fn record_i64(&mut self, field: &tracing_core::Field, value: i64) {
         if self.state.is_ok() {
-            self.state = self.serializer.serialize_entry(field.name(), &value);
+            self.state = self.serialize_entry(field.name(), value)
         }
     }
 
     fn record_u64(&mut self, field: &tracing_core::Field, value: u64) {
         if self.state.is_ok() {
-            self.state = self.serializer.serialize_entry(field.name(), &value);
+            self.state = self.serialize_entry(field.name(), value)
         }
     }
 
     fn record_i128(&mut self, field: &tracing_core::Field, value: i128) {
         if self.state.is_ok() {
-            self.state = self.serializer.serialize_entry(field.name(), &value);
+            self.state = self.serialize_entry(field.name(), value)
         }
     }
 
     fn record_u128(&mut self, field: &tracing_core::Field, value: u128) {
         if self.state.is_ok() {
-            self.state = self.serializer.serialize_entry(field.name(), &value);
+            self.state = self.serialize_entry(field.name(), value)
         }
     }
 
     fn record_bool(&mut self, field: &tracing_core::Field, value: bool) {
         if self.state.is_ok() {
-            self.state = self.serializer.serialize_entry(field.name(), &value);
+            self.state = self.serialize_entry(field.name(), value)
         }
     }
 
     fn record_str(&mut self, field: &tracing_core::Field, value: &str) {
         if self.state.is_ok() {
-            if self.overwrite_message_name.is_some() && field.name() == "message" {
-                self.state = self
-                    .serializer
-                    .serialize_entry(self.overwrite_message_name.expect("message"), &value);
-            } else {
-                self.state = self.serializer.serialize_entry(field.name(), &value);
-            }
+            self.state = self.serialize_entry(field.name(), value)
         }
     }
 
@@ -84,24 +91,13 @@ where
         value: &(dyn std::error::Error + 'static),
     ) {
         if self.state.is_ok() {
-            self.state = self
-                .serializer
-                .serialize_entry(field.name(), &format_args!("{}", value).to_string());
+            self.state = self.serialize_entry(field.name(), &value.to_string())
         }
     }
 
     fn record_debug(&mut self, field: &tracing_core::Field, value: &dyn std::fmt::Debug) {
         if self.state.is_ok() {
-            if self.overwrite_message_name.is_some() && field.name() == "message" {
-                self.state = self.serializer.serialize_entry(
-                    self.overwrite_message_name.expect("message"),
-                    &format_args!("{:?}", value).to_string(),
-                );
-            } else {
-                self.state = self
-                    .serializer
-                    .serialize_entry(field.name(), &format_args!("{:?}", value).to_string());
-            }
+            self.state = self.serialize_entry(field.name(), &format!("{:?}", value))
         }
     }
 }
