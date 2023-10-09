@@ -101,3 +101,24 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde::{ser::SerializeMap, Serializer};
+
+    #[test]
+    fn test_overwrite_message_name() {
+        use super::Visitor;
+
+        let mut binding = serde_json::Serializer::new(Vec::new());
+        let mut serializer = binding.serialize_map(None).unwrap();
+        let mut visitor = Visitor::new(&mut serializer, Some("msg"));
+
+        let _ = visitor.serialize_entry("message", "hello");
+        visitor.finish().unwrap();
+        serializer.end().unwrap();
+
+        let result = String::from_utf8(binding.into_inner()).unwrap();
+        assert_eq!(result, r#"{"msg":"hello"}"#);
+    }
+}
