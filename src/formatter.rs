@@ -250,12 +250,10 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use crate::builder;
-
     use super::*;
     use chrono::Utc;
     use tracing::{info, info_span};
-    use tracing_subscriber::fmt::{MakeWriter, SubscriberBuilder};
+    use tracing_subscriber::fmt::MakeWriter;
 
     #[derive(Clone, Debug)]
     struct MockWriter {
@@ -303,8 +301,30 @@ mod tests {
         }
     }
 
-    fn subscriber() -> SubscriberBuilder<FieldsFormatter, JsonEventFormatter> {
-        builder().subscriber_builder()
+    fn subscriber(
+        make_writer: MockMakeWriter,
+        json_event_formatter: Option<JsonEventFormatter>,
+        fields_formatter: Option<FieldsFormatter>,
+    ) -> tracing_subscriber::FmtSubscriber<
+        FieldsFormatter,
+        JsonEventFormatter,
+        tracing_core::LevelFilter,
+        MockMakeWriter,
+    > {
+        let json_event_formatter = json_event_formatter.unwrap_or(JsonEventFormatter::default());
+        let field_formatter = fields_formatter.unwrap_or(FieldsFormatter::default());
+
+        tracing_subscriber::fmt::Subscriber::builder()
+            .event_format(json_event_formatter)
+            .fmt_fields(field_formatter)
+            .with_writer(make_writer)
+            .finish()
+    }
+
+    fn get_json_object(content: &str) -> serde_json::Value {
+        let obj: Option<serde_json::Value> = serde_json::from_str(content).ok();
+        assert!(matches!(&obj, Some(serde_json::Value::Object(_))));
+        obj.expect("matched object")
     }
 
     #[test]
@@ -312,19 +332,14 @@ mod tests {
         use tracing::subscriber;
 
         let mock_writer = MockMakeWriter::new();
-        let subscriber = subscriber().with_writer(mock_writer.clone()).finish();
+        let subscriber = subscriber(mock_writer.clone(), None, None);
 
         subscriber::with_default(subscriber, || {
             info!(life = 42, "Hello, world!");
         });
 
-        let content = mock_writer.get_content();
+        let obj = get_json_object(&mock_writer.get_content());
 
-        println!("{:?}", content);
-
-        let obj: Option<serde_json::Value> = serde_json::from_str(&content).ok();
-        assert!(matches!(obj, Some(serde_json::Value::Object(_))));
-        let obj = obj.expect("matched object");
         assert_eq!(
             obj.get("level").unwrap(),
             &serde_json::Value::String("info".to_owned())
@@ -357,7 +372,7 @@ mod tests {
         use tracing::subscriber;
 
         let mock_writer = MockMakeWriter::new();
-        let subscriber = subscriber().with_writer(mock_writer.clone()).finish();
+        let subscriber = subscriber(mock_writer.clone(), None, None);
 
         subscriber::with_default(subscriber, || {
             let span = info_span!("hello", "request.uri" = "https://example.com");
@@ -366,13 +381,8 @@ mod tests {
             });
         });
 
-        let content = mock_writer.get_content();
+        let obj = get_json_object(&mock_writer.get_content());
 
-        println!("{:?}", content);
-
-        let obj: Option<serde_json::Value> = serde_json::from_str(&content).ok();
-        assert!(matches!(obj, Some(serde_json::Value::Object(_))));
-        let obj = obj.expect("matched object");
         assert_eq!(
             obj.get("level").unwrap(),
             &serde_json::Value::String("info".to_owned())
@@ -398,5 +408,53 @@ mod tests {
             .parse::<chrono::DateTime<Utc>>()
             .unwrap();
         assert!(timestamp > Utc::now() - chrono::Duration::seconds(1));
+    }
+
+    #[test]
+    fn test_all_options() {
+        use tracing::subscriber;
+
+        let mock_writer = MockMakeWriter::new();
+        let subscriber = subscriber(
+            mock_writer.clone(),
+            Some(
+                JsonEventFormatter::default()
+                    .with_level_name("severity")
+                    .with_target_name("logger")
+                    .with_message_name("msg")
+                    .with_timestamp_name("ts")
+                    .with_timestamp_format(crate::TimestampFormat::Unix)
+                    .with_level_value_casing(crate::Casing::Uppercase),
+            ),
+            None,
+        );
+
+        subscriber::with_default(subscriber, || {
+            let span = info_span!("hello", "request.uri" = "https://example.com");
+            span.in_scope(|| {
+                info!("Hello, world!");
+            });
+        });
+
+        let obj = get_json_object(&mock_writer.get_content());
+
+        assert_eq!(
+            obj.get("severity").unwrap(),
+            &serde_json::Value::String("INFO".to_owned())
+        );
+        assert_eq!(
+            obj.get("msg").unwrap(),
+            &serde_json::Value::String("Hello, world!".to_owned())
+        );
+        assert_eq!(
+            obj.get("logger").unwrap(),
+            &serde_json::Value::String("tracing_ndjson::formatter::tests".to_owned())
+        );
+        assert_eq!(
+            obj.get("request.uri").unwrap(),
+            &serde_json::Value::String("https://example.com".to_owned())
+        );
+        let timestamp = obj.get("ts").unwrap().as_i64().unwrap();
+        assert!(timestamp > Utc::now().timestamp() - 1);
     }
 }
