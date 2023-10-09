@@ -12,6 +12,7 @@ use crate::{visitor, Error};
 
 const DEFAULT_TIMESTAMP_FORMAT: crate::TimestampFormat = crate::TimestampFormat::Rfc3339;
 const DEFAULT_LEVEL_NAME: &str = "level";
+const DEFAULT_LEVEL_VALUE_CASING: crate::Casing = crate::Casing::Lowercase;
 const DEFAULT_MESSAGE_NAME: &str = "message";
 const DEFAULT_TARGET_NAME: &str = "target";
 const DEFAULT_TIMESTAMP_NAME: &str = "timestamp";
@@ -21,6 +22,7 @@ const DEFAULT_FLATTEN_FIELDS: bool = true;
 /// This is used to format the event field in the JSON output.
 pub struct JsonEventFormatter {
     level_name: &'static str,
+    level_value_casing: crate::Casing,
     message_name: &'static str,
     target_name: &'static str,
     timestamp_name: &'static str,
@@ -32,6 +34,7 @@ impl Default for JsonEventFormatter {
     fn default() -> Self {
         Self {
             level_name: DEFAULT_LEVEL_NAME,
+            level_value_casing: DEFAULT_LEVEL_VALUE_CASING,
             message_name: DEFAULT_MESSAGE_NAME,
             target_name: DEFAULT_TARGET_NAME,
             timestamp_name: DEFAULT_TIMESTAMP_NAME,
@@ -48,6 +51,11 @@ impl JsonEventFormatter {
 
     pub fn with_level_name(mut self, level_name: &'static str) -> Self {
         self.level_name = level_name;
+        self
+    }
+
+    pub fn with_level_value_casing(mut self, level_value_casing: crate::Casing) -> Self {
+        self.level_value_casing = level_value_casing;
         self
     }
 
@@ -93,11 +101,13 @@ where
         let mut binding = serde_json::Serializer::new(Vec::new());
         let mut serializer = binding.serialize_map(None).map_err(Error::Serde)?;
 
+        let level_str = match self.level_value_casing {
+            crate::Casing::Lowercase => event.metadata().level().to_string().to_lowercase(),
+            crate::Casing::Uppercase => event.metadata().level().to_string().to_uppercase(),
+        };
+
         serializer
-            .serialize_entry(
-                self.level_name,
-                &event.metadata().level().to_string().to_lowercase(),
-            )
+            .serialize_entry(self.level_name, &level_str)
             .map_err(Error::Serde)?;
 
         if matches!(
