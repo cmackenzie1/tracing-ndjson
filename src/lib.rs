@@ -90,6 +90,11 @@ impl TimestampFormat {
     }
 }
 
+pub enum Casing {
+    Lowercase,
+    Uppercase,
+}
+
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("fmt error: {0}")]
@@ -110,6 +115,7 @@ impl From<Error> for std::fmt::Error {
 /// This is used to configure the JSON formatter.
 /// The default configuration is:
 /// * level_name: "level"
+/// * level_value_casing: Casing::Lowercase
 /// * message_name: "message"
 /// * target_name: "target"
 /// * timestamp_name: "timestamp"
@@ -125,6 +131,7 @@ impl From<Error> for std::fmt::Error {
 ///     .with(
 ///         tracing_ndjson::Builder::default()
 ///             .with_level_name("severity")
+///            .with_level_value_casing(tracing_ndjson::Casing::Uppercase)
 ///             .with_message_name("msg")
 ///             .with_timestamp_name("ts")
 ///             .with_timestamp_format(tracing_ndjson::TimestampFormat::Unix)
@@ -163,6 +170,13 @@ impl Builder {
     /// The default is "level".
     pub fn with_level_name(mut self, level_name: &'static str) -> Self {
         self.events = self.events.with_level_name(level_name);
+        self
+    }
+
+    /// Set the casing for the level field value.
+    /// The default is Casing::Lowercase.
+    pub fn with_level_value_casing(mut self, casing: Casing) -> Self {
+        self.events = self.events.with_level_value_casing(casing);
         self
     }
 
@@ -277,6 +291,7 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(
             builder()
                 .with_level_name("severity")
+                .with_level_value_casing(Casing::Uppercase)
                 .with_message_name("msg")
                 .with_timestamp_name("ts")
                 .with_timestamp_format(TimestampFormat::Unix)
