@@ -1,8 +1,8 @@
 # tracing-ndjson
 
-![Crates.io](https://img.shields.io/crates/v/tracing-ndjson)
+[![Crates.io](https://img.shields.io/crates/v/tracing-ndjson)](https://crates.io/crates/tracing-ndjson)
 [![Rust](https://github.com/cmackenzie1/tracing-ndjson/actions/workflows/rust.yml/badge.svg)](https://github.com/cmackenzie1/tracing-ndjson/actions/workflows/rust.yml)
-![docs.rs](https://img.shields.io/docsrs/tracing-ndjson)
+[![docs.rs](https://img.shields.io/docsrs/tracing-ndjson)](https://docs.rs/tracing-ndjson/latest/tracing_ndjson)
 
 
 A simple library for tracing in new-line delimited JSON format. This library is meant to be used with [tracing](https://github.com/tokio-rs/tracing) as an alternative to the `tracing_subscriber::fmt::json` formatter.
