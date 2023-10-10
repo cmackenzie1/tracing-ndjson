@@ -1,6 +1,9 @@
 # tracing-ndjson
 
+![Crates.io](https://img.shields.io/crates/v/tracing-ndjson)
 [![Rust](https://github.com/cmackenzie1/tracing-ndjson/actions/workflows/rust.yml/badge.svg)](https://github.com/cmackenzie1/tracing-ndjson/actions/workflows/rust.yml)
+![docs.rs](https://img.shields.io/docsrs/tracing-ndjson)
+
 
 A simple library for tracing in new-line delimited JSON format. This library is meant to be used with [tracing](https://github.com/tokio-rs/tracing) as an alternative to the `tracing_subscriber::fmt::json` formatter.
 
@@ -29,12 +32,12 @@ fn main() {
         .init();
 
     tracing::info!(life = 42, "Hello, world!");
-    // {"level":"info","timestamp":"2023-10-08T03:30:52Z","target":"default","message":"Hello, world!"}
+    // {"level":"info","timestamp":"2023-10-10T20:35:26Z","target":"defaults","message":"Hello, world!","life":42}
 
     let span = tracing::info_span!("hello", "request.uri" = "https://example.com");
     span.in_scope(|| {
         tracing::info!("Hello, world!");
-        // {"level":"info","timestamp":"2023-10-08T03:34:33Z","target":"defaults","message":"Hello, world!","request.uri":"https://example.com"}
+        // {"level":"info","timestamp":"2023-10-10T20:35:26Z","target":"defaults","message":"Hello, world!","request.uri":"https://example.com"}
     });
 }
 ```
