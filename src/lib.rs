@@ -4,11 +4,23 @@
 //!
 //! A simple library for tracing in new-line delimited JSON format. This library is meant to be used with [tracing](https://github.com/tokio-rs/tracing) as an alternative to the `tracing_subscriber::fmt::json` formatter.
 //!
+//! The goal of this crate is to provide a flattend JSON event, comprising of fields from the span attributes and event fields, with customizeable field names and timestamp formats.
+//!
 //! ## Features
 //!
 //! - Configurable field names for `target`, `message`, `level`, and `timestamp`.
-//! - Configurable timestamp formats such as RFC3339, UNIX timestamp, or any custom chrono format.
-//! - Captures all span attributes and event fields in the root of the JSON object.
+//! - Configurable timestamp formats
+//!   - RFC3339 (`2023-10-08T03:30:52Z`),
+//!   - RFC339Nanos (`2023-10-08T03:30:52.123456789Z`)
+//!   - Unix timestamp (`1672535452`)
+//!   - UnixMills (`1672535452123`)
+//! - Captures all span attributes and event fields in the root of the JSON object. Collisions will result in overwriting the existing field.
+//!
+//! ## Limitations
+//!
+//! - When flattening span attributes and event fields, the library will overwrite any existing fields with the same name, including the built-in fields such as `target`, `message`, `level`, `timestamp`, `file`, and `line`.
+//! - Non-determistic ordering of fields in the JSON object. ([JSON objects are unordered](https://www.json.org/json-en.html))
+//! - Currently only logs to stdout. (PRs welcome!)
 //!
 //! ## Usage
 //!
@@ -17,21 +29,23 @@
 //! ```toml
 //! [dependencies]
 //! tracing = "0.1"
-//! tracing-ndjson = "0.1"
+//! tracing-ndjson = "0.2"
 //! ```
 //!
 //! ```rust
 //! use tracing_subscriber::prelude::*;
 //!
-//! tracing_subscriber::registry()
-//!     .with(tracing_ndjson::builder().layer())
-//!     .init();
+//! let subscriber = tracing_subscriber::registry().with(tracing_ndjson::layer());
+//!
+//! tracing::subscriber::set_global_default(subscriber).unwrap();
+//!
 //! tracing::info!(life = 42, "Hello, world!");
-//! // {"level":"info","timestamp":"2023-10-08T03:30:52Z","target":"default","message":"Hello, world!"}
+//! // {"level":"info","target":"default","life":42,"timestamp":"2023-10-20T21:17:49Z","message":"Hello, world!"}
+//!
 //! let span = tracing::info_span!("hello", "request.uri" = "https://example.com");
 //! span.in_scope(|| {
 //!     tracing::info!("Hello, world!");
-//!     // {"level":"info","timestamp":"2023-10-08T03:34:33Z","target":"defaults","message":"Hello, world!","request.uri":"https://example.com"}
+//!     // {"message":"Hello, world!","request.uri":"https://example.com","level":"info","target":"default","timestamp":"2023-10-20T21:17:49Z"}
 //! });
 //! ```
 //!
@@ -41,24 +55,26 @@
 //!
 //! ## License
 //!
-//! Licensed under MIT license [LICENSE](./LICENSE)
-mod formatter;
-mod visitor;
+//! Licensed under [MIT license](./LICENSE)
 
+mod layer;
+mod storage;
+
+pub use layer::*;
 use tracing_core::Subscriber;
-use tracing_subscriber::fmt::{Layer, SubscriberBuilder};
 use tracing_subscriber::registry::LookupSpan;
 
 /// A timestamp format for the JSON formatter.
 /// This is used to format the timestamp field in the JSON output.
 /// The default is RFC3339.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum TimestampFormat {
     /// Seconds since UNIX_EPOCH
     Unix,
     /// Milliseconds since UNIX_EPOCH
     UnixMillis,
     /// RFC3339
+    #[default]
     Rfc3339,
     /// RFC3339 with nanoseconds
     Rfc3339Nanos,
@@ -90,7 +106,9 @@ impl TimestampFormat {
     }
 }
 
+#[derive(Debug, Default)]
 pub enum Casing {
+    #[default]
     Lowercase,
     Uppercase,
 }
@@ -120,7 +138,10 @@ impl From<Error> for std::fmt::Error {
 /// * target_name: "target"
 /// * timestamp_name: "timestamp"
 /// * timestamp_format: TimestampFormat::Rfc3339
+/// * line_numbers: false
+/// * file_names: false
 /// * flatten_fields: true
+/// * flatten_spans: true
 ///
 /// # Examples
 ///
@@ -131,7 +152,7 @@ impl From<Error> for std::fmt::Error {
 ///     .with(
 ///         tracing_ndjson::Builder::default()
 ///             .with_level_name("severity")
-///            .with_level_value_casing(tracing_ndjson::Casing::Uppercase)
+///             .with_level_value_casing(tracing_ndjson::Casing::Uppercase)
 ///             .with_message_name("msg")
 ///             .with_timestamp_name("ts")
 ///             .with_timestamp_format(tracing_ndjson::TimestampFormat::Unix)
@@ -140,15 +161,13 @@ impl From<Error> for std::fmt::Error {
 ///
 /// tracing::info!(life = 42, "Hello, world!");
 pub struct Builder {
-    events: formatter::JsonEventFormatter,
-    fields: formatter::FieldsFormatter,
+    layer: crate::JsonFormattingLayer,
 }
 
 impl Builder {
     pub fn new() -> Self {
         Self {
-            events: formatter::JsonEventFormatter::new(),
-            fields: formatter::FieldsFormatter::new(),
+            layer: crate::JsonFormattingLayer::default(),
         }
     }
 }
@@ -169,68 +188,75 @@ impl Builder {
     /// Set the field name for the level field.
     /// The default is "level".
     pub fn with_level_name(mut self, level_name: &'static str) -> Self {
-        self.events = self.events.with_level_name(level_name);
+        self.layer.level_name = level_name;
         self
     }
 
     /// Set the casing for the level field value.
     /// The default is Casing::Lowercase.
     pub fn with_level_value_casing(mut self, casing: Casing) -> Self {
-        self.events = self.events.with_level_value_casing(casing);
+        self.layer.level_value_casing = casing;
         self
     }
 
     /// Set the field name for the message field.
     /// The default is "message".
     pub fn with_message_name(mut self, message_name: &'static str) -> Self {
-        self.events = self.events.with_message_name(message_name);
+        self.layer.message_name = message_name;
         self
     }
 
     /// Set the field name for the target field.
     /// The default is "target".
     pub fn with_target_name(mut self, target_name: &'static str) -> Self {
-        self.events = self.events.with_target_name(target_name);
+        self.layer.target_name = target_name;
         self
     }
 
     /// Set the field name for the timestamp field.
     /// The default is "timestamp".
     pub fn with_timestamp_name(mut self, timestamp_name: &'static str) -> Self {
-        self.events = self.events.with_timestamp_name(timestamp_name);
+        self.layer.timestamp_name = timestamp_name;
         self
     }
 
     /// Set the timestamp format for the timestamp field.
     /// The default is TimestampFormat::Rfc3339.
     pub fn with_timestamp_format(mut self, timestamp_format: TimestampFormat) -> Self {
-        self.events = self.events.with_timestamp_format(timestamp_format);
+        self.layer.timestamp_format = timestamp_format;
         self
     }
 
     /// Set whether to flatten fields.
     /// The default is true. If false, fields will be nested under a "fields" object.
     pub fn with_flatten_fields(mut self, flatten_fields: bool) -> Self {
-        self.events = self.events.with_flatten_fields(flatten_fields);
+        self.layer.flatten_fields = flatten_fields;
         self
     }
 
-    /// Return a `Layer` that subscribes to all spans and events using the defined formatter.
-    pub fn layer<S>(self) -> Layer<S, formatter::FieldsFormatter, formatter::JsonEventFormatter>
+    /// Set whether to flatten spans.
+    pub fn with_flatten_spans(mut self, flatten_spans: bool) -> Self {
+        self.layer.flatten_spans = flatten_spans;
+        self
+    }
+
+    /// Set whether to include line numbers.
+    pub fn with_line_numbers(mut self, line_numbers: bool) -> Self {
+        self.layer.line_numbers = line_numbers;
+        self
+    }
+
+    /// Set whether to include file names.
+    pub fn with_file_names(mut self, file_names: bool) -> Self {
+        self.layer.file_names = file_names;
+        self
+    }
+
+    pub fn layer<S>(self) -> impl tracing_subscriber::Layer<S>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        tracing_subscriber::fmt::layer()
-            .fmt_fields(self.fields)
-            .event_format(self.events)
-    }
-
-    pub fn subscriber_builder(
-        self,
-    ) -> SubscriberBuilder<formatter::FieldsFormatter, formatter::JsonEventFormatter> {
-        tracing_subscriber::fmt::Subscriber::builder()
-            .event_format(self.events)
-            .fmt_fields(self.fields)
+        self.layer
     }
 }
 
@@ -240,16 +266,16 @@ pub fn layer<S>() -> impl tracing_subscriber::Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    crate::builder().layer()
+    crate::builder().layer
 }
 
 #[cfg(test)]
 mod tests {
 
-    use super::*;
-
     use tracing::{debug, error, info, info_span, instrument, trace, warn};
     use tracing_subscriber::prelude::*;
+
+    use super::*;
 
     #[instrument]
     fn some_function(a: u32, b: u32) {
