@@ -91,17 +91,24 @@ where
         let mut root: HashMap<&str, serde_json::Value> = HashMap::new();
 
         // level
-        root.insert(
-            self.level_name,
-            match self.level_value_casing {
-                crate::Casing::Lowercase => {
-                    json!(event.metadata().level().to_string().to_lowercase())
-                }
-                crate::Casing::Uppercase => {
-                    json!(event.metadata().level().to_string().to_uppercase())
-                }
+        let level = event.metadata().level();
+        let level_str = match self.level_value_casing {
+            crate::Casing::Lowercase => match *level {
+                tracing_core::Level::TRACE => "trace",
+                tracing_core::Level::DEBUG => "debug",
+                tracing_core::Level::INFO => "info",
+                tracing_core::Level::WARN => "warn",
+                tracing_core::Level::ERROR => "error",
             },
-        );
+            crate::Casing::Uppercase => match *level {
+                tracing_core::Level::TRACE => "TRACE",
+                tracing_core::Level::DEBUG => "DEBUG",
+                tracing_core::Level::INFO => "INFO",
+                tracing_core::Level::WARN => "WARN",
+                tracing_core::Level::ERROR => "ERROR",
+            },
+        };
+        root.insert(self.level_name, json!(level_str));
 
         // target
         root.insert(self.target_name, json!(event.metadata().target()));
