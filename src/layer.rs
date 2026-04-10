@@ -6,6 +6,8 @@ use tracing_subscriber::{registry::LookupSpan, Layer};
 
 use crate::{storage::JsonStorage, TimestampFormat};
 
+type FieldFilter = Box<dyn Fn(&str) -> bool + Send + Sync>;
+
 pub struct JsonFormattingLayer {
     pub(crate) level_name: &'static str,
     pub(crate) level_value_casing: crate::Casing,
@@ -17,6 +19,7 @@ pub struct JsonFormattingLayer {
     pub(crate) file_names: bool,
     pub(crate) flatten_fields: bool,
     pub(crate) flatten_spans: bool,
+    pub(crate) field_filter: Option<FieldFilter>,
 }
 
 impl Default for JsonFormattingLayer {
@@ -32,6 +35,7 @@ impl Default for JsonFormattingLayer {
             file_names: false,
             flatten_fields: true,
             flatten_spans: true,
+            field_filter: None,
         }
     }
 }
@@ -129,8 +133,14 @@ where
         }
 
         // Serialize the event fields
+        let should_include =
+            |name: &str| self.field_filter.as_ref().is_none_or(|f| f(name));
+
         if self.flatten_fields {
             visitor.values().iter().for_each(|(k, v)| {
+                if !should_include(k) {
+                    return;
+                }
                 if *k == "message" {
                     root.insert(self.message_name, v.clone());
                 } else {
@@ -140,6 +150,9 @@ where
         } else {
             let mut fields = HashMap::new();
             visitor.values().iter().for_each(|(k, v)| {
+                if !should_include(k) {
+                    return;
+                }
                 if *k == "message" {
                     fields.insert(self.message_name, v.clone());
                 } else {
@@ -158,6 +171,9 @@ where
                 let visitor = ext.get::<crate::storage::JsonStorage>();
                 if let Some(visitor) = visitor {
                     visitor.values().iter().for_each(|(k, v)| {
+                        if !should_include(k) {
+                            return;
+                        }
                         if *k == "message" {
                             fields.insert(self.message_name, v.clone());
                         } else {
@@ -175,6 +191,9 @@ where
             if self.flatten_spans {
                 spans.iter().for_each(|fields| {
                     fields.iter().for_each(|(k, v)| {
+                        if !should_include(k) {
+                            return;
+                        }
                         if *k == "message" {
                             root.insert(self.message_name, v.clone());
                         } else {
