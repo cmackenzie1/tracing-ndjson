@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use tracing_core::{field::Visit, Field};
+use tracing_core::{Field, field::Visit};
 
 #[derive(Debug, Default)]
 pub(crate) struct JsonStorage<'a> {
