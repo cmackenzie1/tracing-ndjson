@@ -252,6 +252,17 @@ impl Builder {
         self
     }
 
+    /// Set a predicate that controls which fields appear in the JSON output.
+    /// Fields for which the predicate returns `false` are omitted from output
+    /// but are still recorded in span storage and visible to other layers.
+    pub fn with_field_filter(
+        mut self,
+        filter: impl Fn(&str) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.layer.field_filter = Some(Box::new(filter));
+        self
+    }
+
     pub fn layer<S>(self) -> impl tracing_subscriber::Layer<S>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
@@ -375,6 +386,33 @@ mod tests {
             });
 
             some_function(1, 2);
+        });
+    }
+
+    #[test]
+    fn test_field_filter() {
+        let subscriber = tracing_subscriber::registry().with(
+            builder()
+                .with_field_filter(|name| !name.starts_with("__"))
+                .layer(),
+        );
+
+        tracing::subscriber::with_default(subscriber, || {
+            info!(
+                __sentry_fn = "MyService::handle",
+                __sentry_label = "request failed",
+                correlation_id = "abc-123",
+                "something went wrong"
+            );
+
+            let span = info_span!(
+                "request",
+                __internal = "hidden",
+                request_id = "req-456",
+            );
+            span.in_scope(|| {
+                info!("processing request");
+            });
         });
     }
 }
