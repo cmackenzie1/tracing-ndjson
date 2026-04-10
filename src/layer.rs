@@ -40,6 +40,24 @@ impl Default for JsonFormattingLayer {
     }
 }
 
+impl JsonFormattingLayer {
+    fn insert_fields<'k: 'v, 'v>(
+        &self,
+        source: impl Iterator<Item = (&'v &'k str, &'v serde_json::Value)>,
+        dest: &mut HashMap<&'k str, serde_json::Value>,
+    ) {
+        for (&k, v) in source {
+            if let Some(ref f) = self.field_filter {
+                if !f(k) {
+                    continue;
+                }
+            }
+            let key = if k == "message" { self.message_name } else { k };
+            dest.insert(key, v.clone());
+        }
+    }
+}
+
 impl<S> Layer<S> for JsonFormattingLayer
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
@@ -133,32 +151,11 @@ where
         }
 
         // Serialize the event fields
-        let should_include =
-            |name: &str| self.field_filter.as_ref().is_none_or(|f| f(name));
-
         if self.flatten_fields {
-            visitor.values().iter().for_each(|(k, v)| {
-                if !should_include(k) {
-                    return;
-                }
-                if *k == "message" {
-                    root.insert(self.message_name, v.clone());
-                } else {
-                    root.insert(k, v.clone());
-                }
-            });
+            self.insert_fields(visitor.values().iter(), &mut root);
         } else {
             let mut fields = HashMap::new();
-            visitor.values().iter().for_each(|(k, v)| {
-                if !should_include(k) {
-                    return;
-                }
-                if *k == "message" {
-                    fields.insert(self.message_name, v.clone());
-                } else {
-                    fields.insert(k, v.clone());
-                }
-            });
+            self.insert_fields(visitor.values().iter(), &mut fields);
             root.insert("fields", json!(fields));
         }
 
@@ -170,16 +167,7 @@ where
                 let ext = span.extensions();
                 let visitor = ext.get::<crate::storage::JsonStorage>();
                 if let Some(visitor) = visitor {
-                    visitor.values().iter().for_each(|(k, v)| {
-                        if !should_include(k) {
-                            return;
-                        }
-                        if *k == "message" {
-                            fields.insert(self.message_name, v.clone());
-                        } else {
-                            fields.insert(k, v.clone());
-                        }
-                    });
+                    self.insert_fields(visitor.values().iter(), &mut fields);
                 }
                 if !fields.is_empty() {
                     spans.push(fields);
@@ -189,18 +177,9 @@ where
 
         if !spans.is_empty() {
             if self.flatten_spans {
-                spans.iter().for_each(|fields| {
-                    fields.iter().for_each(|(k, v)| {
-                        if !should_include(k) {
-                            return;
-                        }
-                        if *k == "message" {
-                            root.insert(self.message_name, v.clone());
-                        } else {
-                            root.insert(k, v.clone());
-                        }
-                    });
-                });
+                for fields in &spans {
+                    self.insert_fields(fields.iter(), &mut root);
+                }
             } else {
                 root.insert("spans", json!(spans));
             }
