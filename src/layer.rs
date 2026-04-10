@@ -47,10 +47,10 @@ impl JsonFormattingLayer {
         dest: &mut HashMap<&'k str, serde_json::Value>,
     ) {
         for (&k, v) in source {
-            if let Some(ref f) = self.field_filter {
-                if !f(k) {
-                    continue;
-                }
+            if let Some(ref f) = self.field_filter
+                && !f(k)
+            {
+                continue;
             }
             let key = if k == "message" { self.message_name } else { k };
             dest.insert(key, v.clone());
