@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use serde_json::json;
 use tracing_core::Subscriber;
-use tracing_subscriber::{registry::LookupSpan, Layer};
+use tracing_subscriber::{Layer, registry::LookupSpan};
 
-use crate::{storage::JsonStorage, TimestampFormat};
+use crate::{TimestampFormat, storage::JsonStorage};
 
 type FieldFilter = Box<dyn Fn(&str) -> bool + Send + Sync>;
 

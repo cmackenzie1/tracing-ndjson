@@ -389,11 +389,7 @@ mod tests {
                 "something went wrong"
             );
 
-            let span = info_span!(
-                "request",
-                __internal = "hidden",
-                request_id = "req-456",
-            );
+            let span = info_span!("request", __internal = "hidden", request_id = "req-456",);
             span.in_scope(|| {
                 info!("processing request");
             });
