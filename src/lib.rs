@@ -113,22 +113,6 @@ pub enum Casing {
     Uppercase,
 }
 
-#[derive(Debug, thiserror::Error)]
-enum Error {
-    #[error("fmt error: {0}")]
-    Format(#[from] std::fmt::Error),
-    #[error("json error: {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("utf8 error: {0}")]
-    Utf8(#[from] std::str::Utf8Error),
-}
-
-impl From<Error> for std::fmt::Error {
-    fn from(_: Error) -> Self {
-        Self
-    }
-}
-
 /// A builder for the JSON formatter.
 /// This is used to configure the JSON formatter.
 /// The default configuration is:
